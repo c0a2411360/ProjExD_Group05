@@ -15,6 +15,7 @@ GROUND_Y = 360
 GRAVITY = 1
 JUMP_POWER = -18
 MAX_JUMP = 3
+SPAWN_INTERVAL = 90  # タマゴ生成間隔（フレーム数）
 
 # =====================
 # 初期化
@@ -31,7 +32,7 @@ font = pg.font.SysFont(None, 32)
 class Player(pg.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.image = pg.image.load("C:/Users/Admin/Documents/ProjExD/ex4/fig/2.png").convert_alpha()
+        self.image = pg.image.load("fig/2.png").convert_alpha()
         self.image = pg.transform.scale(self.image, (48, 48))
         self.rect = self.image.get_rect(midbottom=(150, GROUND_Y))
         self.vel_y = 0
@@ -102,6 +103,56 @@ class GoalFlag:
         pg.draw.rect(screen, (200, 200, 200), self.pole)
         pg.draw.rect(screen, (255, 0, 0), self.flag)
 
+
+# =====================
+# タマゴ
+# =====================
+class Egg:
+    def __init__(self):
+        egg_images = [
+            pg.image.load("fig/egg1.png").convert_alpha(),
+            pg.image.load("fig/egg2.png").convert_alpha(),
+            pg.image.load("fig/egg3.png").convert_alpha(),
+            pg.image.load("fig/egg4.png").convert_alpha(),
+            pg.image.load("fig/egg5.png").convert_alpha(),
+            pg.image.load("fig/egg6.png").convert_alpha()
+        ]
+        self.image = random.choice(egg_images)  # 6枚からランダム
+        self.image = pg.transform.scale(self.image, (self.image.get_width()//2, self.image.get_height()//2))  # サイズ縮小
+        self.image.set_colorkey((255, 255, 255))  # 白を透過
+        self.rect = self.image.get_rect()
+        self.rect.x = WIDTH  # 画面右端から出現
+        self.rect.bottom = GROUND_Y  # 地面に設置
+        
+
+    def update(self, speed):
+        self.rect.x -= speed*0.8  # 背景スクロールの80%の速度で左へ
+        return self.rect.right > 0  # 画面外に出たかどうかを返す
+       
+    def draw(self, screen):
+        screen.blit(self.image, self.rect)
+
+
+class Egg_Counter:
+    def __init__(self, max_count=7, pos=(700, 400)):
+        self.count = 0
+        self.max_count = max_count
+        self.pos = pos  # 画面右下など表示位置
+
+    def add(self):
+        self.count += 1
+        if self.count >= self.max_count:
+            self.count = 0
+            return True  # カウントが最大になったらTrue（加速トリガー）
+        return False
+
+    def draw(self, screen, font):  # 右下に表示
+        text = font.render(f"EGGS: {self.count}", True, (0, 0, 0))
+        screen.blit(text, self.pos)
+
+    def reset(self):
+        self.count = 0  # カウントリセット
+
 # =====================
 # メイン
 # =====================
@@ -109,6 +160,11 @@ def main():
     stage = 1
     speed = 6
     goal_distance = 2500
+    egg_timer = 0
+    eggs = []
+    egg_counter = Egg_Counter()
+    speed_boost = 0
+    boost_frames = FPS*0.5  # 1秒間に画面が更新される回数（フレーム/秒）が0.5倍加速持続時間
 
     while True:
         player = Player()
@@ -118,6 +174,7 @@ def main():
         frame = 0
         state = "play"
         next_stage = False
+        current_speed = speed
 
         while True:
             # ---------- イベント ----------
@@ -154,11 +211,17 @@ def main():
                     else:
                         holes.append(Hole(x))
 
+                if speed_boost > 0:
+                    current_speed = speed * 2
+                    speed_boost -= 1
+                else:
+                    current_speed = speed
+
                 for s in steps:
-                    s.update(speed)
+                    s.update(current_speed)
                 for h in holes:
-                    h.update(speed)
-                goal.update(speed)
+                    h.update(current_speed)
+                goal.update(current_speed)
 
                 # ===== 地面生成（穴を除外） =====
                 base_grounds = [pg.Rect(0, GROUND_Y, WIDTH, HEIGHT)]
@@ -194,6 +257,26 @@ def main():
                 if player.rect.colliderect(goal.pole):
                     state = "clear"
 
+                # タマゴ生成
+                egg_timer += 1
+                if egg_timer >= SPAWN_INTERVAL:
+                    eggs.append(Egg())  # ここで Egg を作る
+                    egg_timer = 0
+                
+                # タマゴ更新
+                for egg in eggs[:]:
+                    egg.update(current_speed)  # 移動
+                    if egg.rect.top > HEIGHT or egg.rect.right < 0:
+                        eggs.remove(egg)
+                        continue  # 画面外に出たら削除
+
+                    if player.rect.colliderect(egg.rect):
+                        eggs.remove(egg)
+                        if egg_counter.add():
+                            speed_boost = boost_frames  # 加速トリガー
+
+                pg.display.update()
+
             # ---------- 描画 ----------
             screen.fill((135, 206, 235))
             pg.draw.rect(screen, (50, 200, 50), (0, GROUND_Y, WIDTH, HEIGHT))
@@ -201,10 +284,20 @@ def main():
             for h in holes:
                 pg.draw.rect(screen, (0, 0, 0), h.rect)
             for s in steps:
-                pg.draw.rect(screen, (50, 200, 50), s.rect)
+                pg.draw.rect(screen, (50, 200, 50), s.rect),(0,GROUND_Y,WIDTH,HEIGHT)
 
             goal.draw()
             screen.blit(player.image, player.rect)
+
+            if speed_boost > 0:
+                dark_overlay = pg.Surface((WIDTH, HEIGHT))
+                dark_overlay.set_alpha(80)  # 透明度
+                dark_overlay.fill((0, 0, 0))
+                screen.blit(dark_overlay,(0,0))
+            for egg in eggs:
+                egg_counter.draw(screen, font)
+                egg.draw(screen)
+                egg.update(current_speed)
 
             screen.blit(font.render(f"STAGE {stage}", True, (0, 0, 0)), (10, 10))
 
