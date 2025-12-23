@@ -3,8 +3,10 @@ import sys
 import os
 import random
 
+
 # 指定条件
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 
 # =====================
 # 定数
@@ -16,6 +18,7 @@ GRAVITY = 1
 JUMP_POWER = -18
 MAX_JUMP = 3
 
+
 # =====================
 # 初期化
 # =====================
@@ -24,6 +27,7 @@ screen = pg.display.set_mode((WIDTH, HEIGHT))
 pg.display.set_caption("こうかとん、講義に遅刻する")
 clock = pg.time.Clock()
 font = pg.font.SysFont(None, 32)
+
 
 # =====================
 # 主人公
@@ -63,6 +67,7 @@ class Player(pg.sprite.Sprite):
             self.vel_y = JUMP_POWER
             self.jump_count += 1
 
+
 # =====================
 # 段差
 # =====================
@@ -75,6 +80,7 @@ class Step:
     def update(self, speed):
         self.rect.x -= speed
 
+
 # =====================
 # 穴
 # =====================
@@ -85,6 +91,7 @@ class Hole:
 
     def update(self, speed):
         self.rect.x -= speed
+
 
 # =====================
 # ゴール旗
@@ -101,6 +108,71 @@ class GoalFlag:
     def draw(self):
         pg.draw.rect(screen, (200, 200, 200), self.pole)
         pg.draw.rect(screen, (255, 0, 0), self.flag)
+    
+
+# =====================
+# 赤い先生
+# =====================
+def make_teacher_image():  # 赤い先生を作成
+    surf = pg.Surface((40, 60), pg.SRCALPHA)  # 透過あり
+    surf.fill((0, 0, 0, 0))  # 完全透明
+
+    # 体
+    pg.draw.rect(surf, (200, 50, 50), (5, 10, 30, 45), border_radius=8)
+
+    # 頭
+    pg.draw.circle(surf, (230, 80, 80), (20, 12), 10)
+
+    # 目
+    pg.draw.circle(surf, (0, 0, 0), (16, 10), 2)
+    pg.draw.circle(surf, (0, 0, 0), (24, 10), 2)
+
+    return surf
+
+
+class Teacher:
+    def __init__(self, x):
+        self.image = make_teacher_image()
+        self.rect = self.image.get_rect(midbottom=(x, GROUND_Y))
+
+        self.vel_y = 0
+        self.speed = 8
+        self.on_ground = False
+        self.jump_timer = 0
+
+    def update(self, grounds):
+        # 前進
+        self.rect.x += self.speed
+        if self.rect.right > WIDTH - 80:
+            self.rect.right = WIDTH - 80
+
+        # 一定周期ジャンプ
+        self.jump_timer += 1
+        if self.jump_timer >= 90 and self.on_ground:
+            self.vel_y = JUMP_POWER
+            self.on_ground = False
+            self.jump_timer = 0
+
+        # 重力
+        self.vel_y += GRAVITY
+        self.rect.y += self.vel_y
+
+        # 着地
+        self.on_ground = False
+        for g in grounds:
+            if (
+                self.rect.colliderect(g)
+                and self.vel_y >= 0
+                and self.rect.bottom - self.vel_y <= g.top
+            ):
+                self.rect.bottom = g.top
+                self.vel_y = 0
+                self.on_ground = True
+                break
+
+    def draw(self):
+        screen.blit(self.image, self.rect)
+
 
 # =====================
 # メイン
@@ -114,6 +186,8 @@ def main():
         player = Player()
         steps = []
         holes = []
+        teachers = []  # 先生リスト
+        teacher_appeared = False
         goal = GoalFlag(goal_distance)
         frame = 0
         state = "play"
@@ -158,10 +232,12 @@ def main():
                     s.update(speed)
                 for h in holes:
                     h.update(speed)
+                
                 goal.update(speed)
 
                 # ===== 地面生成（穴を除外） =====
                 base_grounds = [pg.Rect(0, GROUND_Y, WIDTH, HEIGHT)]
+                teacher_grounds = [pg.Rect(0, GROUND_Y, WIDTH, HEIGHT)]
 
                 for h in holes:
                     new_grounds = []
@@ -181,6 +257,9 @@ def main():
 
                 grounds = base_grounds + [s.rect for s in steps]
 
+                for t in teachers:
+                    t.update(teacher_grounds)
+
                 if player.update(grounds) == "fall":
                     state = "gameover"
 
@@ -194,6 +273,15 @@ def main():
                 if player.rect.colliderect(goal.pole):
                     state = "clear"
 
+                # 低確率で先生を出現
+                if (
+                    not teacher_appeared
+                    and frame % 120 == 0
+                    and random.random() < 0.5
+                ):
+                    teachers.append(Teacher(player.rect.left - 80))
+                    teacher_appeared = True
+
             # ---------- 描画 ----------
             screen.fill((135, 206, 235))
             pg.draw.rect(screen, (50, 200, 50), (0, GROUND_Y, WIDTH, HEIGHT))
@@ -202,6 +290,8 @@ def main():
                 pg.draw.rect(screen, (0, 0, 0), h.rect)
             for s in steps:
                 pg.draw.rect(screen, (50, 200, 50), s.rect)
+            for t in teachers:  # 先生の描画
+                t.draw()
 
             goal.draw()
             screen.blit(player.image, player.rect)
@@ -213,7 +303,11 @@ def main():
                             (WIDTH//2 - 100, HEIGHT//2))
 
             if state == "clear":
-                screen.blit(font.render("NEXT STAGE? Y / N", True, (0, 0, 0)),
+                if teacher_appeared:
+                    msg = "Class cancellation！"
+                else:
+                    msg = "NEXT STAGE? Y / N"
+                screen.blit(font.render(msg, True, (0, 0, 255)),
                             (WIDTH//2 - 120, HEIGHT//2))
 
             pg.display.update()
@@ -221,6 +315,7 @@ def main():
 
             if next_stage:
                 break
+
 
 # =====================
 if __name__ == "__main__":
